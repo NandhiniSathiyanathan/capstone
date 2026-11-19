@@ -1,0 +1,8 @@
+.venv/
+.env
+__pycache__/
+*.py[cod]
+uploads/
+vectorstore/
+requests.http
+check_mongodb.py
