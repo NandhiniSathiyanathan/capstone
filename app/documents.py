@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import pymupdf
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 
 from app.auth import get_current_user
@@ -13,6 +14,24 @@ UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok= True)
 
 MAX_FILE_SIZE = 10 * 1024 * 1024 # 10 MB
+
+
+def extract_pdf_pages(pdf_path: Path):
+    page_texts = []
+
+    with pymupdf.open(pdf_path) as pdf:
+        total_pages = pdf.page_count
+
+        for page_number, page in enumerate(pdf, start=1):
+            text = page.get_text("text", sort=True).strip()
+
+            if text:
+                page_texts.append({
+                    "page": page_number,
+                    "text": text,
+                })
+
+    return total_pages, page_texts
 
 @router.post("/upload", status_code=201)
 async def upload_pdf(
@@ -41,21 +60,33 @@ async def upload_pdf(
     document_id = str(uuid4())
     stored_path = UPLOAD_DIR / f"{document_id}.pdf"
     stored_path.write_bytes(content)
+
+    try:
+        total_pages, page_texts = extract_pdf_pages(stored_path)
+    except Exception as exc:
+        stored_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=400,
+            detail="No selectable text was found in the PDF",
+        
+        )
     
     documents_collection.insert_one({
         "_id": document_id,
         "filename": filename,
         "stored_path": str(stored_path),
         "owner_id": str(current_user["_id"]),
-        "total_pages": None,
+        "total_pages": total_pages,
         "total_chunks": 0,
         "created_at": datetime.now(timezone.utc),
     })
 
     return {
-        "message": "PDF uploaded successfully",
+        "message": "PDF uploaded and text extracted successfully",
         "document_id": document_id,
         "filename": filename,
+        "total_pages": total_pages,
+        "page_with_texts": len(page_texts),
     }
     
 
