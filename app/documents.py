@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+import json
 
 import pymupdf
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -12,6 +13,8 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok= True)
+VECTOR_DIR = Path(__file__).resolve().parent.parent / "vector_store"
+VECTOR_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_FILE_SIZE = 10 * 1024 * 1024 # 10 MB
 
@@ -32,6 +35,32 @@ def extract_pdf_pages(pdf_path: Path):
                 })
 
     return total_pages, page_texts
+
+def chunk_pages(page_texts, document_id):
+    chunks = []
+    chunk_size = 500
+    overlap = 50
+
+    for page_data in page_texts:
+        text = page_data["text"]
+        start = 0
+
+        while start < len(text):
+            end = start + chunk_size
+            chunk_text = text[start:end].strip()
+
+            if chunk_text:
+                chunks.append({
+                    "document_id": document_id,
+                    "chunk_id": len(chunks),
+                    "page": page_data["page"],
+                    "text": chunk_text,
+                })
+
+            start += chunk_size - overlap
+
+    return chunks
+                
 
 @router.post("/upload", status_code=201)
 async def upload_pdf(
@@ -63,6 +92,14 @@ async def upload_pdf(
 
     try:
         total_pages, page_texts = extract_pdf_pages(stored_path)
+        chunks = chunk_pages(page_texts, document_id)
+
+        metadata_path = VECTOR_DIR / f"{document_id}.json"
+        metadata_path.write_text(
+            json.dumps(chunks, ensure_ascii=False, indent=2),
+            encoding = "utf-8",
+        )
+
     except Exception as exc:
         stored_path.unlink(missing_ok=True)
         raise HTTPException(
@@ -77,7 +114,7 @@ async def upload_pdf(
         "stored_path": str(stored_path),
         "owner_id": str(current_user["_id"]),
         "total_pages": total_pages,
-        "total_chunks": 0,
+        "total_chunks": len(chunks),
         "created_at": datetime.now(timezone.utc),
     })
 
@@ -87,6 +124,7 @@ async def upload_pdf(
         "filename": filename,
         "total_pages": total_pages,
         "page_with_texts": len(page_texts),
+        "total_chunks": len(chunks)
     }
     
 
