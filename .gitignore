@@ -3,6 +3,6 @@
 __pycache__/
 *.py[cod]
 uploads/
-vectorstore/
+vector_store/
 requests.http
 check_mongodb.py
