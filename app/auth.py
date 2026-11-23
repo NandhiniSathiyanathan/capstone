@@ -86,7 +86,7 @@ def get_current_user(
         )
         email = payload.get("sub")
     except JWTError:
-        raise HTTPExcetion(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     if not email:
         raise HTTPException(status_code=401, detail="Invalid token")

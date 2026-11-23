@@ -1,4 +1,5 @@
 import requests
+import json
 
 from pathlib import Path
 import faiss
@@ -50,6 +51,31 @@ def load_faiss_index(document_id):
     index_path = VECTOR_DIR / f"{document_id}.index"
     return faiss.read_index(str(index_path))
 
+def retrieve_chunks(question, document_id, top_k=3):
+    metadata_path = VECTOR_DIR / f"{document_id}.json"
+
+    if not metadata_path.exists():
+        raise FileNotFoundError("chunk metadata was not found")
+
+    chunks = json.loads(metadata_path.read_text(encoding="utf-8"))
+    index = load_faiss_index(document_id)
+
+    if not chunks or index.ntotal == 0:
+        return[]
+
+    question_embedding = embed_texts([question])
+    number_to_find = min(top_k, index.ntotal)
+    distances, positions = index.search(question_embedding, number_to_find)
+
+    matching_chunks =[]
+
+    for position in positions[0]:
+        if position >= 0:
+            matching_chunks.append(chunks[int(position)])
+
+    return matching_chunks
+
+
 def generate_answer(question, context):
     prompt = f"""
 You answer questions about a document.
@@ -77,11 +103,11 @@ Answer:
             timeout=180,
         )
         response.raise_for_status()
-    except requests.exception.ConnectionError as exc:
+    except requests.exceptions.ConnectionError as exc:
         raise RuntimeError(
-            "connot connect to Ollama. check that Ollama is running."
+            "cannot connect to Ollama. check that Ollama is running."
         ) from exc
-    except requests.exception.Timeout as exc:
+    except requests.exceptions.Timeout as exc:
         raise RuntimeError("Ollama took too long to answer.") from exc
 
     return response.json()["response"].strip()
